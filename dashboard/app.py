@@ -77,8 +77,7 @@ def fetch_available_cws(underlying_symbol: str) -> list:
         # Lọc thủ công để tránh lỗi query API
         filtered = [x for x in data if x.get("underlyingSymbol") == underlying_symbol]
         return filtered
-    except Exception as e:
-        st.error(f"Lỗi kết nối API Danh mục: {e}")
+    except Exception:
         return []
 
 def color_cscore(val):
@@ -177,7 +176,7 @@ def render_watchlist_manager():
                 # Lưu vào session_state để render editor
                 st.session_state['cw_scan_result'] = cw_df
             else:
-                st.warning("Không tìm thấy Chứng quyền khả dụng hoặc API lỗi.")
+                st.warning("⚠️ Mạng Local của bạn đang chặn API VNDirect (Timeout). Vui lòng kéo xuống Bảng bên dưới, chọn [+] Add Row để tự gõ thêm Mã Chứng Quyền thủ công.")
                 
     if 'cw_scan_result' in st.session_state:
         st.markdown("**2. Đánh dấu (Tick) vào các mã bạn muốn đưa vào Hệ Thống:**")
@@ -195,19 +194,17 @@ def render_watchlist_manager():
         )
         if st.button("📥 Hợp nhất vào Danh mục (Merge)"):
             selected_cws = edited_scan[edited_scan["Chọn Thêm"] == True]
-            count = 0
-            for _, row in selected_cws.iterrows():
-                sym = row["symbol"]
-                if sym not in current_config:
-                    current_config[sym] = {"is_cw": True, "delta": 0.5, "gearing": 3.0} # Giá trị mặc định an toàn cho CW
-                    count += 1
-            if count > 0:
-                # Đảm bảo mã cơ sở cũng nằm trong danh mục
+            num_selected = len(selected_cws)
+            if num_selected > 0:
+                for _, row in selected_cws.iterrows():
+                    sym = row["symbol"]
+                    if sym not in current_config:
+                        current_config[sym] = {"is_cw": True, "delta": 0.5, "gearing": 3.0}
+                # Đảm bảo mã cơ sở cũng hiển diện
                 if selected_base not in current_config:
                     current_config[selected_base] = {"is_cw": False, "delta": 1.0, "gearing": 1.0}
                 save_cw_config(current_config)
-                st.success(f"Thành công! Đã thêm Mã cơ sở {selected_base} và {count} Mã Chứng quyền vào Danh Mục của Bot lõi.")
-                st.rerun()
+                st.success(f"Thành công! Đã thêm {num_selected} Mã Chứng quyền vào Danh Mục.")
             else:
                 st.info("Chưa chọn mã nào để đánh dấu.")
 
@@ -218,10 +215,28 @@ def render_watchlist_manager():
     if not current_config:
         st.warning("Danh mục rỗng. Vui lòng thêm từ Máy quét ở trên.")
     else:
-        df_cfg = pd.DataFrame.from_dict(current_config, orient='index').reset_index()
-        df_cfg.columns = ["Mã_CK", "Loại_CW", "Delta", "Gearing"]
+        # Build safe dataframe independent of config extra keys
+        data_list = []
+        for sym, props in current_config.items():
+            data_list.append({
+                "Mã_CK": sym,
+                "Loại_CW": props.get("is_cw", False),
+                "Delta": props.get("delta", 1.0),
+                "Gearing": props.get("gearing", 1.0)
+            })
+        df_cfg = pd.DataFrame(data_list)
         
-        final_edt = st.data_editor(df_cfg, num_rows="dynamic", use_container_width=True)
+        final_edt = st.data_editor(
+            df_cfg, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            column_config={
+                "Mã_CK": st.column_config.TextColumn("Mã CK", required=True),
+                "Loại_CW": st.column_config.CheckboxColumn("Chứng quyền"),
+                "Delta": st.column_config.NumberColumn("Delta", min_value=0.0, max_value=2.0, format="%.2f"),
+                "Gearing": st.column_config.NumberColumn("Gearing", min_value=0.0, max_value=20.0, format="%.2f")
+            }
+        )
         if st.button("💾 Cập Nhật Ghi Đè (Save All Changes)"):
             new_config = {}
             for _, r in final_edt.dropna(subset=['Mã_CK']).iterrows():
