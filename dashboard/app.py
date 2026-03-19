@@ -9,6 +9,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from src.backtest.runner import run_backtest
 from src.data.cw_loader import load_cw_config, save_cw_config
+from alerts.telegram_bot import load_telegram_config, save_telegram_config
 
 st.set_page_config(page_title="CW-Quant Dashboard", layout="wide")
 st.title("CW-Quant Local Trading Assistant")
@@ -128,3 +129,18 @@ with tab3:
     with col_b:
         st.subheader("Current Settings Viewer")
         st.json(current_config)
+        
+        st.markdown("---")
+        st.subheader("📱 Telegram Alert Settings")
+        tele_config = load_telegram_config()
+        with st.form("telegram_form", clear_on_submit=False):
+            t_token = st.text_input("Bot Token", value=tele_config.get("bot_token", ""), type="password", help="Get this from @BotFather on Telegram")
+            t_chat = st.text_input("Chat ID", value=tele_config.get("chat_id", ""), help="Get this from @userinfobot on Telegram")
+            
+            t_submitted = st.form_submit_button("Save Telegram Settings")
+            if t_submitted:
+                if save_telegram_config({"bot_token": t_token, "chat_id": t_chat}):
+                    st.success("✅ Telegram Settings Saved! Live alerts are now fully active.")
+                    st.rerun()
+                else:
+                    st.error("Failed to save.")
