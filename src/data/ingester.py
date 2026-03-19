@@ -9,12 +9,17 @@ except Exception as e:
     def stock_historical_data(*args, **kwargs):
         raise NotImplementedError(f"vnstock import failed: {global_import_error}")
 
-def fetch_market_price(symbol: str) -> dict:
+def fetch_market_price(symbol: str, resolution: str = "1D") -> dict:
     try:
         end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         
-        df = stock_historical_data(symbol=symbol, start_date=start_date, end_date=end_date, resolution="1D", type="stock")
+        # TCBS intraday requires tight window to prevent huge payloads
+        if resolution in ["1", "5", "15", "30", "1H"]:
+            start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        else:
+            start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            
+        df = stock_historical_data(symbol=symbol, start_date=start_date, end_date=end_date, resolution=resolution, type="stock")
         if df is not None and not df.empty:
             latest = df.iloc[-1]
             last_close = df.iloc[-2]['close'] if len(df) > 1 else latest['close']

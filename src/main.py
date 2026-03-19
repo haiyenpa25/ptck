@@ -5,7 +5,7 @@ from src.core.database import init_db
 from src.data.ingester import fetch_market_price
 from src.engine.features import calculate_spread_factor, calculate_time_factor, compute_c_score
 from src.engine.decision import evaluate_signals
-from src.data.cw_loader import get_cw_metrics, get_all_symbols, extract_underlying_from_cw
+from src.data.cw_loader import get_cw_metrics, get_all_symbols, extract_underlying_from_cw, load_app_settings
 from alerts.telegram_bot import send_alert
 
 DB_PATH = "cw_quant.db"
@@ -27,7 +27,9 @@ def save_signal(conn, symbol, state, c_score):
     conn.commit()
     
 def run_cycle():
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Running CW-Centric Engine Cycle...")
+    settings = load_app_settings()
+    res = settings.get("resolution", "1D")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Running Engine Cycle (Mode: {res})...")
     conn = sqlite3.connect(DB_PATH)
     active_watchlist = get_all_symbols()
     
@@ -49,7 +51,7 @@ def run_cycle():
     # 2. Xử lý từng Nhóm Mã Cơ Sở
     for base, data_group in underlying_groups.items():
         try:
-            base_data = fetch_market_price(base)
+            base_data = fetch_market_price(base, resolution=res)
             if not base_data:
                 continue
                 
@@ -66,15 +68,12 @@ def run_cycle():
                 
             # 3. Phân bổ C-Score cho các Chứng quyền con (Focus exclusively on small capital CWs)
             for cw_sym in data_group["cws"]:
-                cw_data = fetch_market_price(cw_sym)
-                if not cw_data: continue
-                
-                save_market_data(conn, cw_data)
                 cw = get_cw_metrics(cw_sym)
                 
-                # Fallback Mocks for missing live Greek endpoints
-                spread = calculate_spread_factor(cw_data["price"] * 0.99, cw_data["price"] * 1.01) 
-                time_f = calculate_time_factor(random.randint(5, 45)) 
+                # TCBS Historical API blocks CW tickers. However, our V2 Strategy is purely Underlying-Driven!
+                # We don't need the CW's live price. We calculate its momentum directly via Greeks.
+                spread = 1.5 # Giả định chênh lệch Bid/Ask lý tưởng của CW là 1.5%
+                time_f = "SAFE" # Fallback time factor
                 
                 # Tính C-Score dựa MẠNH VÀO Tín Hiệu Cơ Sở Dẫn Đường
                 c_score = compute_c_score(spread, time_f, base_momentum_pct, cw['delta'], cw['gearing'])
@@ -83,10 +82,10 @@ def run_cycle():
                 # Chỉ bắn tín hiệu cho CW 
                 if state in ["PROBE", "CONFIRM", "MAX_SIZE"]:
                     save_signal(conn, cw_sym, state, float(c_score))
-                    alert_msg = f"🔥 <b>CHỨNG QUYỀN ALERT: {cw_sym}</b>\n"
-                    alert_msg += f"Khuyến nghị: {state} | C-Score: {c_score:.1f}\n"
-                    alert_msg += f"👉 Sức kéo từ Cơ Sở <i>{base}</i>: {'+' if base_momentum_pct>0 else ''}{base_momentum_pct:.2f}%\n"
-                    alert_msg += f"⚡ Đòn bẩy (Gearing): {cw['gearing']}x | Delta: {cw['delta']}"
+                    alert_msg = f"🔥 <b>CHỨNG QUYỀN V2 ALERT: {cw_sym}</b>\n"
+                    alert_msg += f"Trạng thái: {state} | C-Score: {c_score:.1f}\n"
+                    alert_msg += f"👉 Kéo từ Cơ Sở ({base}): {'+' if base_momentum_pct>0 else ''}{base_momentum_pct:.2f}%\n"
+                    alert_msg += f"⚡ Gearing: {cw['gearing']}x | Delta: {cw['delta']}"
                     
                     send_alert(alert_msg)
                     

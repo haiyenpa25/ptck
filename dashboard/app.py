@@ -9,7 +9,7 @@ import requests
 # Khởi tạo đường dẫn Backend
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from src.backtest.runner import run_backtest
-from src.data.cw_loader import load_cw_config, save_cw_config
+from src.data.cw_loader import load_cw_config, save_cw_config, load_app_settings, save_app_settings
 from alerts.telegram_bot import load_telegram_config, save_telegram_config
 
 # -----------------------------------------------------------------
@@ -156,8 +156,27 @@ def render_watchlist_manager():
     > **Cơ chế Tiết kiệm Tài nguyên (Local-Optimized):** Máy tính của bạn sẽ KHÔNG quét toàn bộ thị trường. Bạn chỉ định những mã Cơ Sở và Chứng Quyền nào ở dưới đây, Bot sẽ chỉ kết nối API lấy đúng các mã đó để đảm bảo tốc độ tối đa!
     """)
     
-    current_config = load_cw_config()
+    from src.data.cw_loader import load_app_settings, save_app_settings
     
+    st.markdown("---")
+    st.subheader("⚡ Tần Số Quét Lệnh (Timeframe Engine V4)")
+    settings = load_app_settings()
+    current_res = settings.get("resolution", "1D")
+    
+    modes = {"1D": "Nhịp Swing Đoạn Ngắn (Khung Ngày / 1D)", "1H": "Day Trading Biến Động (Khung 1 Giờ / 1H)", "15": "Cướp Tàu Thần Tốc (Khung 15 Phút / 15m)"}
+    rev_modes = {v: k for k, v in modes.items()}
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        sel_mode = st.radio("Chọn Nhịp Mạch (Heartbeat) Của Lõi Quant:", list(modes.values()), index=list(modes.keys()).index(current_res), key="timeframe_radio")
+    with c2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        if st.button("💾 Áp Dụng Nhịp Mạch", use_container_width=True):
+            settings["resolution"] = rev_modes[sel_mode]
+            save_app_settings(settings)
+            st.success(f"Hệ thống đã chuyển tần số lõi sang {sel_mode}! Chức năng Backtest cũng sẽ tuân theo tần số này.")
+            st.rerun()
+            
+    current_config = load_cw_config()
     st.markdown("---")
     st.subheader("🔍 Máy Quét Phái Sinh (Auto-Discovery)")
     # Lựa chọn mã cơ sở phổ biến
@@ -254,12 +273,17 @@ def render_backtesting():
     Đưa Thuật toán về quá khứ để xem kết quả Giao dịch có tạo ra **LỢI NHUẬN THỰC TẾ** hay không.
     """)
     
+    settings = load_app_settings()
+    res = settings.get("resolution", "1D")
+    max_days = 365 if res == "1D" else 30
+    default_days = 180 if res == "1D" else 15
+    
     cfg = load_cw_config()
     symbols = list(cfg.keys()) if cfg else ["FPT", "HPG", "VNM"]
     
     c1, c2 = st.columns(2)
     with c1: t_sym = st.selectbox("Chọn Mã Kiểm Thử", symbols)
-    with c2: t_days = st.slider("Khung thời gian (Ngày)", 30, 365, 180)
+    with c2: t_days = st.slider(f"Khoảng thời gian (Ngày) - Cho Nến {res}", 3, max_days, default_days)
         
     if st.button("🚀 Bắt Đầu Backtest", use_container_width=True):
         with st.spinner("Đang đồng bộ dữ liệu VNStock quá khứ và Dựng cây mô phỏng..."):
