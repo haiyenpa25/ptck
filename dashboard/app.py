@@ -23,16 +23,21 @@ def load_data():
         conn.close()
     return signals_df, market_df
 
-st.subheader("Latest C-Score Signals")
+st.subheader("📊 C-Score Signals Over Time")
 signals, market = load_data()
 
 if not signals.empty:
-    st.dataframe(signals, use_container_width=True)
+    st.dataframe(signals.head(10), use_container_width=True)
+    
+    # Render interactive line chart for C-Score
+    signals['timestamp'] = pd.to_datetime(signals['timestamp'])
+    chart_data = signals.pivot(index='timestamp', columns='symbol', values='c_score')
+    st.line_chart(chart_data)
 else:
     st.info("No signals recorded yet. Database might be empty.")
 
-st.subheader("Market Data Feed")
+st.subheader("📈 Live Market Data Feed")
 if not market.empty:
-    st.dataframe(market, use_container_width=True)
+    st.dataframe(market.head(10), use_container_width=True)
 else:
     st.info("No market data recorded yet. Database might be empty.")
