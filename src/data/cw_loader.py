@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "cw_config.json")
 
@@ -27,3 +28,11 @@ def get_cw_metrics(symbol: str) -> dict:
     """Return Greeks for a symbol. Default to 1.0 if not found (Underlying)."""
     configs = load_cw_config()
     return configs.get(symbol, {"is_cw": False, "delta": 1.0, "gearing": 1.0})
+
+def extract_underlying_from_cw(symbol: str) -> str:
+    """Auto-extract underlying from CW symbol (e.g. CFPT2305 -> FPT)."""
+    symbol = symbol.strip().upper()
+    # Check if this is a standard HOSE CW format: C + XXX + YYNN
+    m = re.match(r'^C([A-Z]{3})\d+$', symbol)
+    if m: return m.group(1)
+    return symbol

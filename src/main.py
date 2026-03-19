@@ -5,7 +5,7 @@ from src.core.database import init_db
 from src.data.ingester import fetch_market_price
 from src.engine.features import calculate_spread_factor, calculate_time_factor, compute_c_score
 from src.engine.decision import evaluate_signals
-from src.data.cw_loader import get_cw_metrics, get_all_symbols
+from src.data.cw_loader import get_cw_metrics, get_all_symbols, extract_underlying_from_cw
 from alerts.telegram_bot import send_alert
 
 DB_PATH = "cw_quant.db"
@@ -27,43 +27,77 @@ def save_signal(conn, symbol, state, c_score):
     conn.commit()
     
 def run_cycle():
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Running ingestion cycle...")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Running CW-Centric Engine Cycle...")
     conn = sqlite3.connect(DB_PATH)
-    
     active_watchlist = get_all_symbols()
+    
+    # 1. Nhóm các Chứng Quyền (CWs) theo Mã Cơ Sở (Base Underlying)
+    underlying_groups = {} 
+    
     for symbol in active_watchlist:
+        cw_metrics = get_cw_metrics(symbol)
+        if cw_metrics.get('is_cw'):
+            base = extract_underlying_from_cw(symbol)
+            if base not in underlying_groups:
+                underlying_groups[base] = {"base": base, "cws": []}
+            underlying_groups[base]["cws"].append(symbol)
+        else:
+            base = symbol
+            if base not in underlying_groups:
+                underlying_groups[base] = {"base": base, "cws": []}
+                
+    # 2. Xử lý từng Nhóm Mã Cơ Sở
+    for base, data_group in underlying_groups.items():
         try:
-            data = fetch_market_price(symbol)
-            if not data:
+            base_data = fetch_market_price(base)
+            if not base_data:
                 continue
                 
-            save_market_data(conn, data)
+            # Lưu Data Cơ Sở chỉ để tham khảo (Không tạo Alert)
+            save_market_data(conn, base_data)
             
-            # Load Greek Configurations
-            cw = get_cw_metrics(symbol)
-            
-            # Calculate Quantitative Factors 
-            spread = calculate_spread_factor(data["price"] * 0.99, data["price"] * 1.01) # fallback since realtime Bid/Ask is missing
-            time_f = calculate_time_factor(random.randint(5, 45)) # simulated Days-to-Expiration
-            momentum = random.uniform(-3.0, 3.0) # simulated 1-day momentum %
-            
-            # Compute actual C-Score with Greeks
-            c_score = compute_c_score(spread, time_f, momentum, cw['delta'], cw['gearing'])
-            state = evaluate_signals(c_score)
-            
-            # If threshold crossed, send alert and save signal
-            if state in ["PROBE", "CONFIRM", "MAX_SIZE"]:
-                save_signal(conn, symbol, state, round(c_score, 2))
-                send_alert(f"🚨 SIGNAL ALERT 🚨\nSymbol: {symbol}\nState: {state}\nC-Score: {c_score:.2f}")
+            # Tính toán Động lượng thực tế (Thực chiến Intraday Momentum)
+            base_price = base_data.get("price", 0)
+            base_yest = base_data.get("yesterday_close", base_price)
+            if base_yest > 0:
+                base_momentum_pct = ((base_price - base_yest) / base_yest) * 100
+            else:
+                base_momentum_pct = 0.0
                 
+            # 3. Phân bổ C-Score cho các Chứng quyền con (Focus exclusively on small capital CWs)
+            for cw_sym in data_group["cws"]:
+                cw_data = fetch_market_price(cw_sym)
+                if not cw_data: continue
+                
+                save_market_data(conn, cw_data)
+                cw = get_cw_metrics(cw_sym)
+                
+                # Fallback Mocks for missing live Greek endpoints
+                spread = calculate_spread_factor(cw_data["price"] * 0.99, cw_data["price"] * 1.01) 
+                time_f = calculate_time_factor(random.randint(5, 45)) 
+                
+                # Tính C-Score dựa MẠNH VÀO Tín Hiệu Cơ Sở Dẫn Đường
+                c_score = compute_c_score(spread, time_f, base_momentum_pct, cw['delta'], cw['gearing'])
+                state = evaluate_signals(c_score)
+                
+                # Chỉ bắn tín hiệu cho CW 
+                if state in ["PROBE", "CONFIRM", "MAX_SIZE"]:
+                    save_signal(conn, cw_sym, state, float(c_score))
+                    alert_msg = f"🔥 <b>CHỨNG QUYỀN ALERT: {cw_sym}</b>\n"
+                    alert_msg += f"Khuyến nghị: {state} | C-Score: {c_score:.1f}\n"
+                    alert_msg += f"👉 Sức kéo từ Cơ Sở <i>{base}</i>: {'+' if base_momentum_pct>0 else ''}{base_momentum_pct:.2f}%\n"
+                    alert_msg += f"⚡ Đòn bẩy (Gearing): {cw['gearing']}x | Delta: {cw['delta']}"
+                    
+                    send_alert(alert_msg)
+                    
         except Exception as e:
-            print(f"Error processing {symbol}: {e}")
+            print(f"Error processing Pair {base}: {e}")
             
     conn.close()
 
 if __name__ == "__main__":
-    print("Starting CW-Quant Main Scheduler Loop...")
+    print("Starting CW-Centric Specialized Engine...")
     init_db(DB_PATH)
     while True:
         run_cycle()
-        time.sleep(15) # run every 15 seconds for testing purposes
+        time.sleep(15)

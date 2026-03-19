@@ -13,8 +13,8 @@ def calculate_time_factor(days_to_expiration: int) -> str:
     else:
         return "SAFE"
 
-def compute_c_score(spread: float, time_f: str, momentum_pct: float, delta: float = 1.0, gearing: float = 1.0) -> float:
-    """Computes a quantitative C-Score (0-100) based on weighted factors."""
+def compute_c_score(spread: float, time_f: str, base_momentum_pct: float, delta: float = 1.0, gearing: float = 1.0) -> float:
+    """Computes a quantitative C-Score (0-100) combining structural factors and REAL underlying momentum."""
     score = 50.0  # Base neutral score
     
     # 1. Spread Scoring (Tighter spreads = safer)
@@ -31,11 +31,16 @@ def compute_c_score(spread: float, time_f: str, momentum_pct: float, delta: floa
     elif time_f == "HIGH_RISK":
         score -= 20
         
-    # 3. Delta-Adjusted Momentum Proxy 
-    accel_momentum = momentum_pct * delta * gearing
-    if accel_momentum > 0.5:
-        score += 15
-    elif accel_momentum < -1.0:
+    # 3. Delta-Adjusted Derived Momentum 
+    # Example: Base stock is up +2%, CW Delta 0.5, Gearing 4.0 -> CW momentum +4%
+    cw_momentum_pct = base_momentum_pct * delta * gearing
+    if cw_momentum_pct > 2.0:
+        score += 25
+    elif cw_momentum_pct > 0.5:
+        score += 10
+    elif cw_momentum_pct < -0.5:
         score -= 15
+    elif cw_momentum_pct < -2.0:
+        score -= 30
         
     return min(100.0, max(0.0, score))
