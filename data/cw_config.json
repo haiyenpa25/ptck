@@ -1,0 +1,38 @@
+{
+    "FPT": {
+        "is_cw": false,
+        "delta": 1.0,
+        "gearing": 1.0
+    },
+    "CFPT2305": {
+        "is_cw": true,
+        "delta": 0.45,
+        "gearing": 3.2,
+        "strike_price": 85000,
+        "ratio": 10
+    },
+    "VNM": {
+        "is_cw": false,
+        "delta": 1.0,
+        "gearing": 1.0
+    },
+    "CVNM2306": {
+        "is_cw": true,
+        "delta": 0.60,
+        "gearing": 4.1,
+        "strike_price": 68000,
+        "ratio": 5
+    },
+    "HPG": {
+        "is_cw": false,
+        "delta": 1.0,
+        "gearing": 1.0
+    },
+    "CHPG2331": {
+        "is_cw": true,
+        "delta": 0.35,
+        "gearing": 5.8,
+        "strike_price": 28000,
+        "ratio": 2
+    }
+}

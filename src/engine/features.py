@@ -13,7 +13,7 @@ def calculate_time_factor(days_to_expiration: int) -> str:
     else:
         return "SAFE"
 
-def compute_c_score(spread: float, time_f: str, momentum_pct: float) -> float:
+def compute_c_score(spread: float, time_f: str, momentum_pct: float, delta: float = 1.0, gearing: float = 1.0) -> float:
     """Computes a quantitative C-Score (0-100) based on weighted factors."""
     score = 50.0  # Base neutral score
     
@@ -31,10 +31,11 @@ def compute_c_score(spread: float, time_f: str, momentum_pct: float) -> float:
     elif time_f == "HIGH_RISK":
         score -= 20
         
-    # 3. Basic Momentum Proxy 
-    if momentum_pct > 0:
+    # 3. Delta-Adjusted Momentum Proxy 
+    accel_momentum = momentum_pct * delta * gearing
+    if accel_momentum > 0.5:
         score += 15
-    elif momentum_pct < -2:
+    elif accel_momentum < -1.0:
         score -= 15
         
     return min(100.0, max(0.0, score))

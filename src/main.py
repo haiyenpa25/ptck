@@ -5,6 +5,7 @@ from src.core.database import init_db
 from src.data.ingester import fetch_market_price
 from src.engine.features import calculate_spread_factor, calculate_time_factor, compute_c_score
 from src.engine.decision import evaluate_signals
+from src.data.cw_loader import get_cw_metrics
 from alerts.telegram_bot import send_alert
 
 # Mixture of Underlying Assets and actual CW codes (Covered Warrants)
@@ -39,13 +40,16 @@ def run_cycle():
                 
             save_market_data(conn, data)
             
+            # Load Greek Configurations
+            cw = get_cw_metrics(symbol)
+            
             # Calculate Quantitative Factors 
             spread = calculate_spread_factor(data["price"] * 0.99, data["price"] * 1.01) # fallback since realtime Bid/Ask is missing
             time_f = calculate_time_factor(random.randint(5, 45)) # simulated Days-to-Expiration
             momentum = random.uniform(-3.0, 3.0) # simulated 1-day momentum %
             
-            # Compute actual C-Score from quantitative engine
-            c_score = compute_c_score(spread, time_f, momentum)
+            # Compute actual C-Score with Greeks
+            c_score = compute_c_score(spread, time_f, momentum, cw['delta'], cw['gearing'])
             state = evaluate_signals(c_score)
             
             # If threshold crossed, send alert and save signal
