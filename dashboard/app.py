@@ -8,6 +8,7 @@ import sys
 # Ensure backend imports work 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from src.backtest.runner import run_backtest
+from src.data.cw_loader import load_cw_config, save_cw_config
 
 st.set_page_config(page_title="CW-Quant Dashboard", layout="wide")
 st.title("CW-Quant Local Trading Assistant")
@@ -28,7 +29,7 @@ def load_data():
         conn.close()
     return signals_df, market_df
 
-tab1, tab2 = st.tabs(["Live Monitoring", "Historical Backtesting"])
+tab1, tab2, tab3 = st.tabs(["Live Monitoring", "Historical Backtesting", "⚙️ Watchlist Settings"])
 
 with tab1:
     st.subheader("📊 C-Score Signals Over Time")
@@ -85,3 +86,45 @@ with tab2:
                 
                 st.subheader("Trade Log")
                 st.dataframe(results['trades'], use_container_width=True)
+
+with tab3:
+    st.header("⚙️ Configuration & Watchlist")
+    st.markdown("Quản lý danh mục theo dõi và thông số Greek cho CW.")
+    
+    current_config = load_cw_config()
+    
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        st.subheader("Add/Edit Symbol")
+        with st.form("add_symbol_form", clear_on_submit=True):
+            new_symbol = st.text_input("Symbol (e.g., FPT, CFPT2305)").upper()
+            is_cw = st.checkbox("Is Covered Warrant? (Check for CWs, uncheck for Base Stocks)")
+            new_delta = st.number_input("Delta", value=1.0, format="%.2f", step=0.05)
+            new_gearing = st.number_input("Gearing", value=1.0, format="%.2f", step=0.1)
+            
+            submitted = st.form_submit_button("Save Configuration")
+            if submitted and new_symbol:
+                current_config[new_symbol] = {
+                    "is_cw": is_cw,
+                    "delta": new_delta,
+                    "gearing": new_gearing
+                }
+                if save_cw_config(current_config):
+                    st.success(f"Saved {new_symbol}! The engine will pick it up on the next tick.")
+                    st.rerun()
+                else:
+                    st.error("Failed to save.")
+                    
+        st.subheader("Remove Symbol")
+        with st.form("remove_form"):
+            rem_symbol = st.selectbox("Symbol to delete", list(current_config.keys()) if current_config else ["None"])
+            rem_submitted = st.form_submit_button("Delete")
+            if rem_submitted and rem_symbol != "None":
+                del current_config[rem_symbol]
+                if save_cw_config(current_config):
+                    st.success(f"Deleted {rem_symbol}.")
+                    st.rerun()
+                    
+    with col_b:
+        st.subheader("Current Settings Viewer")
+        st.json(current_config)

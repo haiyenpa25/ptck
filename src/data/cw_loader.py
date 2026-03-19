@@ -10,6 +10,19 @@ def load_cw_config() -> dict:
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
+def save_cw_config(config: dict) -> bool:
+    """Save updated configs to JSON"""
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4)
+        return True
+    except:
+        return False
+
+def get_all_symbols() -> list:
+    """Gets list of all active symbols tracked."""
+    return list(load_cw_config().keys())
+
 def get_cw_metrics(symbol: str) -> dict:
     """Return Greeks for a symbol. Default to 1.0 if not found (Underlying)."""
     configs = load_cw_config()

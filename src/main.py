@@ -5,11 +5,9 @@ from src.core.database import init_db
 from src.data.ingester import fetch_market_price
 from src.engine.features import calculate_spread_factor, calculate_time_factor, compute_c_score
 from src.engine.decision import evaluate_signals
-from src.data.cw_loader import get_cw_metrics
+from src.data.cw_loader import get_cw_metrics, get_all_symbols
 from alerts.telegram_bot import send_alert
 
-# Mixture of Underlying Assets and actual CW codes (Covered Warrants)
-WATCHLIST = ["FPT", "CFPT2305", "VNM", "CVNM2306", "HPG", "CHPG2331"]
 DB_PATH = "cw_quant.db"
 
 def save_market_data(conn, data):
@@ -32,7 +30,8 @@ def run_cycle():
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Running ingestion cycle...")
     conn = sqlite3.connect(DB_PATH)
     
-    for symbol in WATCHLIST:
+    active_watchlist = get_all_symbols()
+    for symbol in active_watchlist:
         try:
             data = fetch_market_price(symbol)
             if not data:
