@@ -1,0 +1,47 @@
+# Files và thư mục KHÔNG đưa vào Docker image
+# ─────────────────────────────────────────────
+
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+*.egg-info
+dist/
+build/
+
+# Virtual environment (QUAN TRỌNG - đừng copy .venv vào image)
+.venv
+venv
+env
+
+# IDE & OS
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db
+
+# Agents & local dev tools
+.agents/
+docs/
+
+# Build artifacts
+dautu.zip
+*.zip
+*.tar.gz
+
+# Logs
+*.log
+logs/
+
+# Test files
+tests/
+.pytest_cache/
+
+# Bat files (Windows-only, không cần trong Linux container)
+*.bat

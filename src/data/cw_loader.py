@@ -52,3 +52,21 @@ def extract_underlying_from_cw(symbol: str) -> str:
     m = re.match(r'^C([A-Z]{3})\d+$', symbol)
     if m: return m.group(1)
     return symbol
+def fetch_warrant_metadata(symbol: str) -> dict:
+    """Fetch full metadata for a CW from VNDirect API."""
+    import requests
+    url = f"https://finfo-api.vndirect.com.vn/v4/stocks?q=symbol:{symbol}"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        data = r.json().get('data', [])
+        if data:
+            item = data[0]
+            return {
+                "issuer": item.get("issuerName", "Unknown"),
+                "strike_price": item.get("strikePrice", 0),
+                "ratio": item.get("exerciseRatio", "1:1"),
+                "maturity_date": item.get("maturityDate", "N/A")
+            }
+    except:
+        pass
+    return {}

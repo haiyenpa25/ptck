@@ -5,7 +5,8 @@ from src.core.database import init_db
 from src.data.ingester import fetch_market_price
 from src.engine.features import calculate_spread_factor, calculate_time_factor, compute_c_score
 from src.engine.decision import evaluate_signals
-from src.data.cw_loader import get_cw_metrics, get_all_symbols, extract_underlying_from_cw, load_app_settings
+from src.data.cw_loader import get_cw_metrics, get_all_symbols, extract_underlying_from_cw
+from src.data.settings_loader import load_app_settings
 from alerts.telegram_bot import send_alert
 
 DB_PATH = "cw_quant.db"
@@ -18,11 +19,22 @@ def save_market_data(conn, data):
     )
     conn.commit()
 
-def save_signal(conn, symbol, state, c_score):
+METADATA_CACHE = {}
+
+def save_signal(conn, symbol, state, c_breakdown, underlying=None, base_mome=0.0, delta=0.0, gearing=0.0, meta=None):
     cursor = conn.cursor()
+    meta = meta or {}
     cursor.execute(
-        "INSERT INTO signals (symbol, state, c_score) VALUES (?, ?, ?)",
-        (symbol, state, c_score)
+        """INSERT INTO signals (
+            symbol, state, c_score, underlying, base_mome, delta, gearing,
+            strike_price, ratio, maturity_date, issuer,
+            spread_score, time_score, mome_score, cw_momentum_pct
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            symbol, state, c_breakdown['total'], underlying, base_mome, delta, gearing,
+            meta.get('strike_price', 0), meta.get('ratio', '1:1'), meta.get('maturity_date', 'N/A'), meta.get('issuer', 'Unknown'),
+            c_breakdown['spread_score'], c_breakdown['time_score'], c_breakdown['mome_score'], c_breakdown['cw_mome']
+        )
     )
     conn.commit()
     
@@ -33,9 +45,8 @@ def run_cycle():
     conn = sqlite3.connect(DB_PATH)
     active_watchlist = get_all_symbols()
     
-    # 1. Nhóm các Chứng Quyền (CWs) theo Mã Cơ Sở (Base Underlying)
+    # 1. Nhóm các Chứng Quyền (CWs) theo Mã Cơ Sở
     underlying_groups = {} 
-    
     for symbol in active_watchlist:
         cw_metrics = get_cw_metrics(symbol)
         if cw_metrics.get('is_cw'):
@@ -49,48 +60,43 @@ def run_cycle():
                 underlying_groups[base] = {"base": base, "cws": []}
                 
     # 2. Xử lý từng Nhóm Mã Cơ Sở
+    from src.data.cw_loader import fetch_warrant_metadata
     for base, data_group in underlying_groups.items():
         try:
             base_data = fetch_market_price(base, resolution=res)
             if not base_data:
                 continue
-                
-            # Lưu Data Cơ Sở chỉ để tham khảo (Không tạo Alert)
-            save_market_data(conn, base_data)
             
-            # Tính toán Động lượng thực tế (Thực chiến Intraday Momentum)
+            save_market_data(conn, base_data)
             base_price = base_data.get("price", 0)
             base_yest = base_data.get("yesterday_close", base_price)
-            if base_yest > 0:
-                base_momentum_pct = ((base_price - base_yest) / base_yest) * 100
-            else:
-                base_momentum_pct = 0.0
+            base_momentum_pct = ((base_price - base_yest) / base_yest) * 100 if base_yest > 0 else 0.0
                 
-            # 3. Phân bổ C-Score cho các Chứng quyền con (Focus exclusively on small capital CWs)
+            # 3. Phân bổ C-Score cho các Chứng quyền con
             for cw_sym in data_group["cws"]:
                 cw = get_cw_metrics(cw_sym)
+                spread = 1.5 
+                time_f = "SAFE" 
                 
-                # TCBS Historical API blocks CW tickers. However, our V2 Strategy is purely Underlying-Driven!
-                # We don't need the CW's live price. We calculate its momentum directly via Greeks.
-                spread = 1.5 # Giả định chênh lệch Bid/Ask lý tưởng của CW là 1.5%
-                time_f = "SAFE" # Fallback time factor
+                # Tính C-Score breakdown
+                c_breakdown = compute_c_score(spread, time_f, base_momentum_pct, cw['delta'], cw['gearing'])
+                state = evaluate_signals(c_breakdown['total'])
                 
-                # Tính C-Score dựa MẠNH VÀO Tín Hiệu Cơ Sở Dẫn Đường
-                c_score = compute_c_score(spread, time_f, base_momentum_pct, cw['delta'], cw['gearing'])
-                state = evaluate_signals(c_score)
+                # Fetch metadata if not in cache
+                if cw_sym not in METADATA_CACHE:
+                    METADATA_CACHE[cw_sym] = fetch_warrant_metadata(cw_sym)
+                meta = METADATA_CACHE[cw_sym]
                 
-                # Chỉ bắn tín hiệu cho CW 
                 if state in ["PROBE", "CONFIRM", "MAX_SIZE"]:
-                    save_signal(conn, cw_sym, state, float(c_score))
-                    alert_msg = f"🔥 <b>CHỨNG QUYỀN V2 ALERT: {cw_sym}</b>\n"
-                    alert_msg += f"Trạng thái: {state} | C-Score: {c_score:.1f}\n"
-                    alert_msg += f"👉 Kéo từ Cơ Sở ({base}): {'+' if base_momentum_pct>0 else ''}{base_momentum_pct:.2f}%\n"
-                    alert_msg += f"⚡ Gearing: {cw['gearing']}x | Delta: {cw['delta']}"
+                    save_signal(conn, cw_sym, state, c_breakdown, base, float(base_momentum_pct), float(cw['delta']), float(cw['gearing']), meta)
                     
+                    alert_msg = f"🔥 <b>SIGNAL: {cw_sym}</b> ({state})\n"
+                    alert_msg += f"Score: {c_breakdown['total']:.1f} | Under: {base} ({base_momentum_pct:+.2f}%)\n"
+                    alert_msg += f"Exp: {meta.get('maturity_date', 'N/A')} | Gear: {cw['gearing']}x"
                     send_alert(alert_msg)
                     
         except Exception as e:
-            print(f"Error processing Pair {base}: {e}")
+            print(f"Error processing {base}: {e}")
             
     conn.close()
 
